@@ -9,5 +9,5 @@ type User struct {
     Location string             `json:"location" validate:"required"`
     Title    string             `json:"title" validate:"required"`
     Password string             `json:"password" validate:"required"`
+    Photo    string             `json:"photo,omitempty" bson:"photo,omitempty"` // Field untuk menyimpan path gambar
 }
-

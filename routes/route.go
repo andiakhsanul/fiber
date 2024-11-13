@@ -21,4 +21,5 @@ func UserRoute(app *fiber.App) {
     userGroup.Delete("/:userId", controllers.DeleteAUser)
 	
     userGroup.Put("/:userId/password", controllers.EditPassword)
+    userGroup.Post("/:userId/upload", controllers.UploadPhoto)
 }

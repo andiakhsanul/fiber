@@ -7,6 +7,8 @@ import (
 	"demoapp/responses"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -46,6 +48,25 @@ func CreateUser(c *fiber.Ctx) error {
 		})
 	}
 
+
+	// Check if the username already exists in the collection
+	var existingUser model.User
+	err := userCollection.FindOne(ctx, bson.M{"username": user.Username}).Decode(&existingUser)
+	if err == nil {
+		// Username already exists
+		return c.Status(http.StatusConflict).JSON(responses.UserResponse{
+			Status:  http.StatusConflict,
+			Message: "error",
+			Data:    &fiber.Map{"data": "Username is already taken"},
+		})
+	} else if err != mongo.ErrNoDocuments {
+		// Other error occurred during the lookup
+		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "error",
+			Data:    &fiber.Map{"data": "Error checking username uniqueness"},
+		})
+	}
 	// Hash the password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -328,5 +349,78 @@ func EditPassword(c *fiber.Ctx) error {
 		Status:  http.StatusOK,
 		Message: "Password updated successfully",
 		Data:    &fiber.Map{"data": "Password changed successfully"},
+	})
+}
+
+func UploadPhoto(c *fiber.Ctx) error {
+	// Context untuk database operation
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Ambil userId dari parameter URL
+	userId := c.Params("userId")
+
+	// Parse userId ke ObjectID
+	objID, err := primitive.ObjectIDFromHex(userId)
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(responses.UserResponse{
+			Status:  http.StatusBadRequest,
+			Message: "error",
+			Data:    &fiber.Map{"data": "Invalid User ID"},
+		})
+	}
+
+	// Ambil file dari form-data dengan key "photo"
+	file, err := c.FormFile("photo")
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(responses.UserResponse{
+			Status:  http.StatusBadRequest,
+			Message: "error",
+			Data:    &fiber.Map{"data": "Failed to retrieve file"},
+		})
+	}
+
+	// Buat folder ./storage/images jika belum ada
+	imageDir := "./storage/images"
+	if err := os.MkdirAll(imageDir, os.ModePerm); err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "error",
+			Data:    &fiber.Map{"data": "Failed to create image directory"},
+		})
+	}
+
+	// Dapatkan ekstensi file
+	fileExtension := filepath.Ext(file.Filename)
+
+	// Generate nama file baru dengan format timestamp
+	timestamp := time.Now().Format("20060102150405999") // Format YYYYMMDDHHmmSSsss
+	newFileName := fmt.Sprintf("%s%s", timestamp, fileExtension)
+	filePath := filepath.Join(imageDir, newFileName)
+
+	// Simpan file ke storage/images
+	if err := c.SaveFile(file, filePath); err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "error",
+			Data:    &fiber.Map{"data": "Failed to save file"},
+		})
+	}
+
+	// Update field photo pada user document
+	update := bson.M{"$set": bson.M{"photo": filePath}}
+	_, err = userCollection.UpdateOne(ctx, bson.M{"_id": objID}, update)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "error",
+			Data:    &fiber.Map{"data": "Failed to update user photo"},
+		})
+	}
+
+	return c.Status(http.StatusOK).JSON(responses.UserResponse{
+		Status:  http.StatusOK,
+		Message: "success",
+		Data:    &fiber.Map{"data": "Photo uploaded successfully", "photo_path": filePath},
 	})
 }
