@@ -7,9 +7,18 @@ import (
 )
 
 func UserRoute(app *fiber.App) {
-	app.Post("/user", controllers.CreateUser)
-	app.Get("/user/:userId", controllers.GetAUser)
-	app.Put("/user/:userId", controllers.EditAUser)
-	app.Delete("/user/:userId", controllers.DeleteAUser)
-	app.Get("/users", controllers.GetAllUsers)
+    // Endpoint login tanpa JWTMiddleware
+    app.Post("/login", controllers.LoginHandler)
+	// app.Post("/create", controllers.CreateUser)
+	
+
+    // Grup user dengan JWTMiddleware
+    userGroup := app.Group("/user", controllers.JWTMiddleware)
+    userGroup.Get("/users", controllers.GetUsers)
+    userGroup.Post("/create", controllers.CreateUser)
+    userGroup.Get("/:userId", controllers.GetAUser)
+    userGroup.Put("/:userId", controllers.EditAUser)
+    userGroup.Delete("/:userId", controllers.DeleteAUser)
+	
+    userGroup.Put("/:userId/password", controllers.EditPassword)
 }

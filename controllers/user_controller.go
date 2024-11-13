@@ -5,6 +5,7 @@ import (
 	"demoapp/config"
 	"demoapp/model"
 	"demoapp/responses"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -13,42 +14,77 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var userCollection *mongo.Collection = config.GetCollection(config.DB, "users")
 var validate = validator.New()
 
+// CreateUser - Create a new user
 func CreateUser(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	var user model.User
 	defer cancel()
 
-	//validate the request body
+	var user model.User
+
+	// Validate request body
 	if err := c.BodyParser(&user); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(responses.UserResponse{Status: http.StatusBadRequest, Message: "error", Data: &fiber.Map{"data": err.Error()}})
+		fmt.Println("Error parsing body:", err)
+		return c.Status(http.StatusBadRequest).JSON(responses.UserResponse{
+			Status:  http.StatusBadRequest,
+			Message: "error",
+			Data:    &fiber.Map{"data1": "Invalid request body format. " + err.Error()},
+		})
 	}
 
-	//use the validator library to validate required fields
+	// Validate required fields using validator
 	if validationErr := validate.Struct(&user); validationErr != nil {
-		return c.Status(http.StatusBadRequest).JSON(responses.UserResponse{Status: http.StatusBadRequest, Message: "error", Data: &fiber.Map{"data": validationErr.Error()}})
+		return c.Status(http.StatusBadRequest).JSON(responses.UserResponse{
+			Status:  http.StatusBadRequest,
+			Message: "error",
+			Data:    &fiber.Map{"data2": validationErr.Error()},
+		})
 	}
 
+	// Hash the password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "error",
+			Data:    &fiber.Map{"data3": err.Error()},
+		})
+	}
+
+	// Create new user object
 	newUser := model.User{
-		Id:       primitive.NewObjectID(),
+		ID:       primitive.NewObjectID(),
+		Username: user.Username,
 		Name:     user.Name,
 		Location: user.Location,
 		Title:    user.Title,
+		Password: string(hashedPassword), // Store hashed password
 	}
 
+	// Insert the new user into the MongoDB collection
 	result, err := userCollection.InsertOne(ctx, newUser)
 	if err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
-
+		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "error",
+			Data:    &fiber.Map{"data4": err.Error()},
+		})
 	}
 
-	return c.Status(http.StatusCreated).JSON(responses.UserResponse{Status: http.StatusCreated, Message: "success", Data: &fiber.Map{"data": result}})
+	// Return the result of the insertion (could be user ID or other relevant info)
+	return c.Status(http.StatusCreated).JSON(responses.UserResponse{
+		Status:  http.StatusCreated,
+		Message: "success",
+		Data:    &fiber.Map{"data5": result},
+	})
 }
 
+// GetAUser - Get a single user by ID
 func GetAUser(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	userId := c.Params("userId")
@@ -57,15 +93,24 @@ func GetAUser(c *fiber.Ctx) error {
 
 	objId, _ := primitive.ObjectIDFromHex(userId)
 
-	err := userCollection.FindOne(ctx, bson.M{"id": objId}).Decode(&user)
+	err := userCollection.FindOne(ctx, bson.M{"_id": objId}).Decode(&user)
 
 	if err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
+		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "error",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
 	}
 
-	return c.Status(http.StatusOK).JSON(responses.UserResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": user}})
+	return c.Status(http.StatusOK).JSON(responses.UserResponse{
+		Status:  http.StatusOK,
+		Message: "success",
+		Data:    &fiber.Map{"data": user},
+	})
 }
 
+// EditAUser - Edit a single user by ID
 func EditAUser(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	userId := c.Params("userId")
@@ -74,37 +119,58 @@ func EditAUser(c *fiber.Ctx) error {
 
 	objId, _ := primitive.ObjectIDFromHex(userId)
 
-	//validate the request body
+	// Validate the request body
 	if err := c.BodyParser(&user); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(responses.UserResponse{Status: http.StatusBadRequest, Message: "error", Data: &fiber.Map{"data": err.Error()}})
+		return c.Status(http.StatusBadRequest).JSON(responses.UserResponse{
+			Status:  http.StatusBadRequest,
+			Message: "error",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
 	}
 
-	//use the validator library to validate required fields
+	// Use the validator library to validate required fields
 	if validationErr := validate.Struct(&user); validationErr != nil {
-		return c.Status(http.StatusBadRequest).JSON(responses.UserResponse{Status: http.StatusBadRequest, Message: "error", Data: &fiber.Map{"data": validationErr.Error()}})
+		return c.Status(http.StatusBadRequest).JSON(responses.UserResponse{
+			Status:  http.StatusBadRequest,
+			Message: "error",
+			Data:    &fiber.Map{"data": validationErr.Error()},
+		})
 	}
 
 	update := bson.M{"name": user.Name, "location": user.Location, "title": user.Title}
 
-	result, err := userCollection.UpdateOne(ctx, bson.M{"id": objId}, bson.M{"$set": update})
+	result, err := userCollection.UpdateOne(ctx, bson.M{"_id": objId}, bson.M{"$set": update})
 
 	if err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
+		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "error",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
 	}
 
-	//get updated user details
+	// Get updated user details
 	var updatedUser model.User
 	if result.MatchedCount == 1 {
-		err := userCollection.FindOne(ctx, bson.M{"id": objId}).Decode(&updatedUser)
+		err := userCollection.FindOne(ctx, bson.M{"_id": objId}).Decode(&updatedUser)
 
 		if err != nil {
-			return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
+			return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{
+				Status:  http.StatusInternalServerError,
+				Message: "error",
+				Data:    &fiber.Map{"data": err.Error()},
+			})
 		}
 	}
 
-	return c.Status(http.StatusOK).JSON(responses.UserResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": updatedUser}})
+	return c.Status(http.StatusOK).JSON(responses.UserResponse{
+		Status:  http.StatusOK,
+		Message: "success",
+		Data:    &fiber.Map{"data": updatedUser},
+	})
 }
 
+// DeleteAUser - Delete a single user by ID
 func DeleteAUser(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	userId := c.Params("userId")
@@ -112,46 +178,155 @@ func DeleteAUser(c *fiber.Ctx) error {
 
 	objId, _ := primitive.ObjectIDFromHex(userId)
 
-	result, err := userCollection.DeleteOne(ctx, bson.M{"id": objId})
+	result, err := userCollection.DeleteOne(ctx, bson.M{"_id": objId})
 
 	if err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
+		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "error",
+			Data:    &fiber.Map{"data": err.Error()},
+		})
 	}
 
 	if result.DeletedCount < 1 {
-		return c.Status(http.StatusNotFound).JSON(
-			responses.UserResponse{Status: http.StatusNotFound, Message: "error", Data: &fiber.Map{"data": "User with specified ID not found!"}},
-		)
+		return c.Status(http.StatusNotFound).JSON(responses.UserResponse{
+			Status:  http.StatusNotFound,
+			Message: "error",
+			Data:    &fiber.Map{"data": "User with specified ID not found!"},
+		})
 	}
 
-	return c.Status(http.StatusOK).JSON(
-		responses.UserResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": "User successfully deleted!"}},
-	)
+	return c.Status(http.StatusOK).JSON(responses.UserResponse{
+		Status:  http.StatusOK,
+		Message: "success",
+		Data:    &fiber.Map{"data": "User successfully deleted!"},
+	})
 }
 
-func GetAllUsers(c *fiber.Ctx) error {
+// GetUsers - Get all users
+func GetUsers(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	var users []model.User
 	defer cancel()
 
-	results, err := userCollection.Find(ctx, bson.M{})
+	var users []model.User
+	cursor, err := userCollection.Find(ctx, bson.M{})
+	if err != nil {
+		// Log error if there's an issue with the MongoDB query
+		fmt.Println("Error fetching users:", err)
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "failed to fetch users from DB"})
+	}
+	defer cursor.Close(ctx)
+
+	err = cursor.All(ctx, &users)
+	if err != nil {
+		// Log error if there's an issue decoding the results
+		fmt.Println("Error decoding users:", err)
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "failed to decode users"})
+	}
+
+	return c.Status(http.StatusOK).JSON(users)
+}
+
+// LoginHandler - User login handler
+func LoginHandler(c *fiber.Ctx) error {
+	type LoginRequest struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	var loginReq LoginRequest
+	if err := c.BodyParser(&loginReq); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
+	}
+
+	// Find user by username
+	var user model.User
+	err := userCollection.FindOne(context.TODO(), bson.M{
+		"username": loginReq.Username,
+	}).Decode(&user)
 
 	if err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "user not found"})
 	}
 
-	//reading from the db in an optimal way
-	defer results.Close(ctx)
-	for results.Next(ctx) {
-		var singleUser model.User
-		if err = results.Decode(&singleUser); err != nil {
-			return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{Status: http.StatusInternalServerError, Message: "error", Data: &fiber.Map{"data": err.Error()}})
-		}
-
-		users = append(users, singleUser)
+	// Verify password
+	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(loginReq.Password))
+	if err != nil {
+		return c.Status(http.StatusUnauthorized).JSON(fiber.Map{"error": "invalid password"})
 	}
 
-	return c.Status(http.StatusOK).JSON(
-		responses.UserResponse{Status: http.StatusOK, Message: "success", Data: &fiber.Map{"data": users}},
-	)
+	// Generate token (function `generateJWT` should be implemented)
+	token := generateJWT(loginReq.Username)
+	return c.Status(http.StatusOK).JSON(fiber.Map{"token": token})
+}
+
+
+
+func EditPassword(c *fiber.Ctx) error {
+	// Ambil userId dari parameter URL
+	userId := c.Params("userId")
+	
+	// Bind body JSON ke struct untuk request
+	var req struct {
+		OldPassword string `json:"old_password"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(responses.UserResponse{
+			Status:  http.StatusBadRequest,
+			Message: "error",
+			Data:    &fiber.Map{"data": "Invalid request body: " + err.Error()},
+		})
+	}
+
+	// Convert userId ke ObjectID
+	objId, _ := primitive.ObjectIDFromHex(userId)
+
+	// Ambil user dari database
+	var user model.User
+	err := userCollection.FindOne(context.Background(), bson.M{"_id": objId}).Decode(&user)
+	if err != nil {
+		return c.Status(http.StatusNotFound).JSON(responses.UserResponse{
+			Status:  http.StatusNotFound,
+			Message: "error",
+			Data:    &fiber.Map{"data": "User not found"},
+		})
+	}
+
+	// Verifikasi apakah old password sesuai dengan password yang ada di database
+	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.OldPassword))
+	if err != nil {
+		return c.Status(http.StatusUnauthorized).JSON(responses.UserResponse{
+			Status:  http.StatusUnauthorized,
+			Message: "error",
+			Data:    &fiber.Map{"data": "Incorrect old password"},
+		})
+	}
+
+	// Hash password baru
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "error",
+			Data:    &fiber.Map{"data": "Failed to hash password: " + err.Error()},
+		})
+	}
+
+	// Update password baru ke database
+	update := bson.M{"password": string(hashedPassword)}
+	_, err = userCollection.UpdateOne(context.Background(), bson.M{"_id": objId}, bson.M{"$set": update})
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{
+			Status:  http.StatusInternalServerError,
+			Message: "error",
+			Data:    &fiber.Map{"data": "Failed to update password: " + err.Error()},
+		})
+	}
+
+	return c.Status(http.StatusOK).JSON(responses.UserResponse{
+		Status:  http.StatusOK,
+		Message: "Password updated successfully",
+		Data:    &fiber.Map{"data": "Password changed successfully"},
+	})
 }
