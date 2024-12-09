@@ -1,4 +1,4 @@
-package controllers
+package middlewares
 
 import (
 	"crypto/hmac"
@@ -27,7 +27,7 @@ func createSignature(message, secret string) string {
 }
 
 // Fungsi generate JWT
-func generateJWT(username string) string {
+func GenerateJWT(username string) string {
 	// Header JWT
 	header := map[string]string{
 		"alg": "HS256",
