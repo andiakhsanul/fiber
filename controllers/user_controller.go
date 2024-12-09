@@ -328,29 +328,34 @@ func LoginHandler(c *fiber.Ctx) error {
 
 	var loginReq LoginRequest
 	if err := c.BodyParser(&loginReq); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
 	}
 
-	// Find user by username
 	var user model.User
 	err := userCollection.FindOne(context.TODO(), bson.M{
 		"username": loginReq.Username,
 	}).Decode(&user)
 
 	if err != nil {
-		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "user not found"})
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "User not found"})
 	}
 
-	// Verify password
+	// Verifikasi password
 	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(loginReq.Password))
 	if err != nil {
-		return c.Status(http.StatusUnauthorized).JSON(fiber.Map{"error": "invalid password"})
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid password"})
 	}
 
-	// Generate token (memanggil fungsi GenerateJWT dari middlewares)
-	token := middlewares.GenerateJWT(loginReq.Username)
+	// Generate token
+	token, err := middlewares.GenerateJWT(user.Username, user.Role, user.JenisUser)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to generate token"})
+	}
 
-	return c.Status(http.StatusOK).JSON(fiber.Map{"token": token})
+	// Set token di header
+	c.Set("Authorization", "Bearer "+token)
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{"token": token})
 }
 
 func EditPassword(c *fiber.Ctx) error {

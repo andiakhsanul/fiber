@@ -8,24 +8,19 @@ import (
 )
 
 func UserRoute(app *fiber.App) {
-	// Endpoint login tanpa JWTMiddleware
 	app.Post("/login", controllers.LoginHandler)
-	// app.Post("/create", controllers.CreateUser)
 
-	// Grup user dengan JWTMiddleware
-	// userGroup := app.Group("/user", controllers.JWTMiddleware)
+	// Grup pengguna dengan autentikasi JWT
+	// userGroup := app.Group("/user", middlewares.JWTMiddleware)
 	// userGroup.Get("/users", controllers.GetUsers)
 	// userGroup.Post("/create", controllers.CreateUser)
 	// userGroup.Get("/:userId", controllers.GetAUser)
 	// userGroup.Put("/:userId", controllers.EditAUser)
 	// userGroup.Delete("/:userId", controllers.DeleteAUser)
-
-	// userGroup.Put("/:userId/password", controllers.EditPassword)
-	// userGroup.Post("/:userId/upload", controllers.UploadPhoto)
 }
 
 func AdminRoutes(app *fiber.App) {
-	adminGroup := app.Group("/admin", middlewares.CheckRole("admin"))
+	adminGroup := app.Group("/admin", middlewares.JWTMiddleware, middlewares.CheckRole("admin"))
 
 	adminGroup.Get("/users", controllers.GetUsers)
 	adminGroup.Get("/users/:userId", controllers.GetAUser)
