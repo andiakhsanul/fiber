@@ -25,7 +25,11 @@ func AdminRoute(app *fiber.App) {
 	adminGroup.Put("/modul/:modulId", controllers.UpdateModul)
 	adminGroup.Delete("/modul/:modulId", controllers.DeleteModul)
 
-	adminGroup
+	adminGroup.Get("/usermodul", controllers.GetAllUserModuls)
+	adminGroup.Post("/usermodul", controllers.CreateUserModul)
+	adminGroup.Get("/usermodul/:usermodulId", controllers.GetUserModulByID)
+	adminGroup.Put("/usermodul/:usermodulId", controllers.UpdateUserModul)
+	adminGroup.Delete("/usermodul/:usermodulId", controllers.DeleteUserModul)
 }
 
 
