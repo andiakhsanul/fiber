@@ -319,7 +319,7 @@ func GetUsers(c *fiber.Ctx) error {
 	return c.Status(http.StatusOK).JSON(users)
 }
 
-// LoginHandler - User login handler
+// LoginHandler untuk login dan menghasilkan token
 func LoginHandler(c *fiber.Ctx) error {
 	type LoginRequest struct {
 		Username string `json:"username"`
@@ -331,6 +331,7 @@ func LoginHandler(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
 	}
 
+	// Mencari pengguna di database
 	var user model.User
 	err := userCollection.FindOne(context.TODO(), bson.M{
 		"username": loginReq.Username,
@@ -352,10 +353,11 @@ func LoginHandler(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to generate token"})
 	}
 
-	// Set token di header
-	c.Set("Authorization", "Bearer "+token)
-
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{"token": token})
+	// Kirim token di response
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Login successful",
+		"token":   token,
+	})
 }
 
 func EditPassword(c *fiber.Ctx) error {
