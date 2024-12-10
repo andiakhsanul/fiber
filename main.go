@@ -14,7 +14,7 @@ func main() {
 	app := fiber.New()
 
 	config.ConnectDB()
-	routes.UserRoute(app)
+	routes.AdminRoute(app)
 
 	// Start the server on port 3000
 	log.Fatal(app.Listen(":3000"))
