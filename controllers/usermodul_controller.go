@@ -139,3 +139,34 @@ func DeleteUserModul(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{"message": "UserModul deleted successfully"})
 }
+
+func AddModuleToUser(c *fiber.Ctx) error {
+	type RequestBody struct {
+		UserID  string `json:"user_id" validate:"required"`
+		ModulID string `json:"modul_id" validate:"required"`
+	}
+	var body RequestBody
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
+	}
+
+	userID, err := primitive.ObjectIDFromHex(body.UserID)
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid user ID"})
+	}
+	modulID, err := primitive.ObjectIDFromHex(body.ModulID)
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid modul ID"})
+	}
+
+	// Tambahkan modul ke usermodul
+	filter := bson.M{"user_id": userID}
+	update := bson.M{"$addToSet": bson.M{"modul_id": modulID}}
+
+	_, err = userModulCollection.UpdateOne(c.Context(), filter, update)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to add module"})
+	}
+
+	return c.Status(http.StatusOK).JSON(fiber.Map{"message": "Module added successfully"})
+}
