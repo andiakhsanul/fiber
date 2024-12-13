@@ -36,6 +36,11 @@ func AdminRoute(app *fiber.App) {
 	//group untuk ganti jenis user
 	adminGroup.Put("/changeusertype", controllers.ChangeUserType)
 
+	//group usermodul untuk user tertentu yaitu cud
+	adminGroup.Post("/usermodulF", controllers.HapusModulUserMenentukan)
+	adminGroup.Put("/usermodulF",controllers.UpdateModulUserMenentukan)
+	adminGroup.Delete("/usermodulF",controllers.HapusModulUserMenentukan)
+
 
 }
 
