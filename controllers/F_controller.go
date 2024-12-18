@@ -13,7 +13,7 @@ import (
 
 // Struktur request
 type UserModuleRequest struct {
-	UserID   string   `json:"user_id" validate:"required"`
+	UserIDs  []string `json:"user_ids" validate:"required"`
 	ModulIDs []string `json:"modul_ids" validate:"required"`
 	Action   string   `json:"action" validate:"required"` // create, update, delete
 }
@@ -27,13 +27,17 @@ func ManageUserModule(c *fiber.Ctx) error {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
 	}
 
-	// Validasi ObjectID
-	userID, err := primitive.ObjectIDFromHex(req.UserID)
-	if err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid user ID"})
+	// Validasi ObjectID untuk UserIDs
+	var userIDs []primitive.ObjectID
+	for _, id := range req.UserIDs {
+		userID, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid user ID: " + id})
+		}
+		userIDs = append(userIDs, userID)
 	}
 
-	// Konversi ModulID ke ObjectID
+	// Validasi ObjectID untuk ModulIDs
 	var modulIDs []primitive.ObjectID
 	for _, id := range req.ModulIDs {
 		modulID, err := primitive.ObjectIDFromHex(id)
@@ -43,58 +47,63 @@ func ManageUserModule(c *fiber.Ctx) error {
 		modulIDs = append(modulIDs, modulID)
 	}
 
-	// Cari jenis_user dari user
-	var user model.User
-	err = UserCollection.FindOne(c.Context(), bson.M{"_id": userID}).Decode(&user)
-	if err != nil {
-		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "User not found"})
-	}
-
 	// Aksi CUD
 	switch req.Action {
 	case "create":
-		// Tambahkan usermodul jika belum ada
-		_, err := UserModulCollection.UpdateOne(
-			c.Context(),
-			bson.M{"jenis_user": user.JenisUser, "user_id": userID},
-			bson.M{
-				"$addToSet": bson.M{"modul_id": bson.M{"$each": modulIDs}},
-				"$setOnInsert": bson.M{
-					"catatan":   "userkhusus",
-					"created_at": time.Now(),
+		for _, userID := range userIDs {
+			var user model.User
+			err := UserCollection.FindOne(c.Context(), bson.M{"_id": userID}).Decode(&user)
+			if err != nil {
+				return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "User not found"})
+			}
+
+			// Buat atau tambahkan modul ke usermodul
+			_, err = UserModulCollection.UpdateOne(
+				c.Context(),
+				bson.M{
+					"jenis_user": user.JenisUser,
+					"user_id":    bson.M{"$in": []primitive.ObjectID{userID}},
 				},
-			},
-			options.Update().SetUpsert(true),
-		)
-		if err != nil {
-			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create user module"})
+				bson.M{
+					"$addToSet": bson.M{
+						"modul_id": bson.M{"$each": modulIDs},
+					},
+					"$setOnInsert": bson.M{
+						"user_id":    []primitive.ObjectID{userID},
+						"catatan":    "userkhusus",
+						"created_at": time.Now(),
+					},
+				},
+				options.Update().SetUpsert(true),
+			)
+			if err != nil {
+				return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create user module"})
+			}
 		}
 
 	case "update":
-		// Tambahkan modul baru
-		_, err := UserModulCollection.UpdateOne(
+		_, err := UserModulCollection.UpdateMany(
 			c.Context(),
-			bson.M{"jenis_user": user.JenisUser, "user_id": userID},
+			bson.M{"user_id": bson.M{"$in": userIDs}},
 			bson.M{"$addToSet": bson.M{"modul_id": bson.M{"$each": modulIDs}}},
 		)
 		if err != nil {
-			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update user module"})
+			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update user modules"})
 		}
 
 	case "delete":
-		// Hapus modul yang ditentukan
-		_, err := UserModulCollection.UpdateOne(
+		_, err := UserModulCollection.UpdateMany(
 			c.Context(),
-			bson.M{"jenis_user": user.JenisUser, "user_id": userID},
+			bson.M{"user_id": bson.M{"$in": userIDs}},
 			bson.M{"$pull": bson.M{"modul_id": bson.M{"$in": modulIDs}}},
 		)
 		if err != nil {
-			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to delete user module"})
+			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to delete user modules"})
 		}
 
 	default:
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid action"})
 	}
 
-	return c.Status(http.StatusOK).JSON(fiber.Map{"message": "User module successfully managed"})
+	return c.Status(http.StatusOK).JSON(fiber.Map{"message": "User modules successfully managed"})
 }

@@ -54,5 +54,3 @@ func AdminRoute(app *fiber.App) {
 
 }
 
-
-
