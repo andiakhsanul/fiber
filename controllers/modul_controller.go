@@ -104,27 +104,59 @@ func CreateModul(c *fiber.Ctx) error {
 
 // Get All Moduls
 func GetAllModuls(c *fiber.Ctx) error {
+	// Mengambil data dari database
 	cursor, err := modulCollection.Find(context.TODO(), bson.M{})
 	if err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch moduls"})
+		// Jika ada error saat mengambil data
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"status":  http.StatusInternalServerError,
+			"message": "error",
+			"data": fiber.Map{
+				"error": "Failed to fetch moduls",
+			},
+		})
 	}
 	defer cursor.Close(context.TODO())
 
+	// Menyiapkan slice untuk menampung hasil modul
 	var moduls []model.Modul
 	for cursor.Next(context.TODO()) {
 		var modul model.Modul
 		if err := cursor.Decode(&modul); err != nil {
-			continue
+			// Jika ada error dalam decode, lanjutkan ke data berikutnya
+			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
+				"status":  http.StatusInternalServerError,
+				"message": "error",
+				"data": fiber.Map{
+					"error": "Failed to decode modul",
+				},
+			})
 		}
 		moduls = append(moduls, modul)
 	}
 
-	return c.JSON(moduls)
+	// Jika tidak ada data modul yang ditemukan
+	if len(moduls) == 0 {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{
+			"status":  http.StatusNotFound,
+			"message": "error",
+			"data": fiber.Map{
+				"error": "No moduls found",
+			},
+		})
+	}
+
+	// Mengembalikan daftar modul yang berhasil ditemukan
+	return c.Status(http.StatusOK).JSON(fiber.Map{
+		"status":  http.StatusOK,
+		"message": "success",
+		"data":    moduls,
+	})
 }
 
 // Get Modul by ID
 func GetModulByID(c *fiber.Ctx) error {
-	id := c.Params("id")
+	id := c.Params("modulId")
 
 	objectID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
@@ -142,30 +174,48 @@ func GetModulByID(c *fiber.Ctx) error {
 
 // Update Modul
 func UpdateModul(c *fiber.Ctx) error {
-	id := c.Params("id")
+	id := c.Params("modulId")
 
+	// Validasi format ID
 	objectID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID format"})
 	}
 
-	modul := new(model.Modul)
-
-	// Parse form data
-	modul.NmModul = c.FormValue("nm_modul")
-	modul.KetModul = c.FormValue("ket_modul")
-	modul.Alamat = c.FormValue("alamat")
-	modul.IsAktif = c.FormValue("is_aktif") == "true"
-
-	urutan, err := strconv.Atoi(c.FormValue("urutan"))
+	// Mencari modul berdasarkan ID
+	var existingModul model.Modul
+	err = modulCollection.FindOne(context.TODO(), bson.M{"_id": objectID}).Decode(&existingModul)
 	if err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid 'urutan' value"})
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Modul not found"})
 	}
-	modul.Urutan = urutan
 
-	// Handle file upload jika ada
-	file, err := c.FormFile("gbr_icon")
-	if err == nil {
+	modul := &existingModul
+
+	// Parse form data hanya jika tidak kosong dan update hanya yang ada isinya
+	if nmModul := c.FormValue("nm_modul"); nmModul != "" {
+		modul.NmModul = nmModul
+	}
+	if ketModul := c.FormValue("ket_modul"); ketModul != "" {
+		modul.KetModul = ketModul
+	}
+	if alamat := c.FormValue("alamat"); alamat != "" {
+		modul.Alamat = alamat
+	}
+	if isAktif := c.FormValue("is_aktif"); isAktif != "" {
+		modul.IsAktif = isAktif == "true"
+	}
+
+	// Urutan hanya jika valid dan tidak kosong
+	if urutanStr := c.FormValue("urutan"); urutanStr != "" {
+		urutan, err := strconv.Atoi(urutanStr)
+		if err != nil {
+			return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid 'urutan' value"})
+		}
+		modul.Urutan = urutan
+	}
+
+	// Handle file upload jika ada file baru
+	if file, err := c.FormFile("gbr_icon"); err == nil {
 		filename, fileErr := saveFile(file)
 		if fileErr != nil {
 			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": fileErr.Error()})
@@ -173,8 +223,10 @@ func UpdateModul(c *fiber.Ctx) error {
 		modul.Gbr_Icon = filename
 	}
 
+	// Set timestamp update
 	modul.UpdatedAt = time.Now()
 
+	// Update hanya field yang diubah
 	update := bson.M{"$set": modul}
 	_, err = modulCollection.UpdateOne(context.TODO(), bson.M{"_id": objectID}, update)
 	if err != nil {
@@ -183,10 +235,9 @@ func UpdateModul(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{"message": "Modul updated successfully"})
 }
-
 // Delete Modul
 func DeleteModul(c *fiber.Ctx) error {
-	id := c.Params("id")
+	id := c.Params("modulId")
 
 	objectID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {

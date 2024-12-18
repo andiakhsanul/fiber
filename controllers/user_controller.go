@@ -167,7 +167,6 @@ func GetAUser(c *fiber.Ctx) error {
 }
 
 // EditAUser - Edit a single user by ID
-// EditAUser - Edit a single user by ID
 func EditAUser(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -193,8 +192,8 @@ func EditAUser(c *fiber.Ctx) error {
 	}
 
 	// Parsing body dan validasi input
-	var user model.User
-	if err := c.BodyParser(&user); err != nil {
+	var userUpdates map[string]interface{}
+	if err := c.BodyParser(&userUpdates); err != nil {
 		return c.Status(http.StatusBadRequest).JSON(responses.UserResponse{
 			Status:  http.StatusBadRequest,
 			Message: "error",
@@ -202,26 +201,34 @@ func EditAUser(c *fiber.Ctx) error {
 		})
 	}
 
-	// Validasi dengan validator library
-	if validationErr := validate.Struct(&user); validationErr != nil {
+	// Filter field yang diizinkan untuk diupdate
+	allowedFields := map[string]bool{
+		"username":      true,
+		"nm_user":       true,
+		"email":         true,
+		"role":          true,
+		"jenis_kelamin": true,
+		"photo":         true,
+		"phone":         true,
+		"token":         true,
+		"jenis_user":    true,
+	}
+
+	// Buat objek update yang valid
+	update := bson.M{}
+	for key, value := range userUpdates {
+		if allowedFields[key] {
+			update[key] = value
+		}
+	}
+
+	// Pastikan ada field yang diupdate
+	if len(update) == 0 {
 		return c.Status(http.StatusBadRequest).JSON(responses.UserResponse{
 			Status:  http.StatusBadRequest,
 			Message: "error",
-			Data:    &fiber.Map{"error": validationErr.Error()},
+			Data:    &fiber.Map{"error": "No valid fields to update"},
 		})
-	}
-
-	// Membuat objek update dengan data yang diubah
-	update := bson.M{
-		"username":      user.Username,
-		"nm_user":       user.NmUser,
-		"email":         user.Email,
-		"role":          user.Role,
-		"jenis_kelamin": user.JenisKelamin,
-		"photo":         user.Photo,
-		"phone":         user.Phone,
-		"token":         user.Token,
-		"jenis_user":    user.JenisUser,
 	}
 
 	// Update dokumen di database
@@ -364,6 +371,16 @@ func EditPassword(c *fiber.Ctx) error {
 	// Ambil userId dari parameter URL
 	userId := c.Params("userId")
 
+	// Validasi ID
+	objId, err := primitive.ObjectIDFromHex(userId)
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(responses.UserResponse{
+			Status:  http.StatusBadRequest,
+			Message: "error",
+			Data:    &fiber.Map{"data": "Invalid User ID"},
+		})
+	}
+
 	// Bind body JSON ke struct untuk request
 	var req struct {
 		OldPassword string `json:"old_password"`
@@ -377,12 +394,21 @@ func EditPassword(c *fiber.Ctx) error {
 		})
 	}
 
-	// Convert userId ke ObjectID
-	objId, _ := primitive.ObjectIDFromHex(userId)
+	// Validasi input kosong
+	if req.OldPassword == "" || req.NewPassword == "" {
+		return c.Status(http.StatusBadRequest).JSON(responses.UserResponse{
+			Status:  http.StatusBadRequest,
+			Message: "error",
+			Data:    &fiber.Map{"data": "Old and new passwords are required"},
+		})
+	}
 
 	// Ambil user dari database
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	var user model.User
-	err := userCollection.FindOne(context.Background(), bson.M{"_id": objId}).Decode(&user)
+	err = userCollection.FindOne(ctx, bson.M{"_id": objId}).Decode(&user)
 	if err != nil {
 		return c.Status(http.StatusNotFound).JSON(responses.UserResponse{
 			Status:  http.StatusNotFound,
@@ -391,7 +417,7 @@ func EditPassword(c *fiber.Ctx) error {
 		})
 	}
 
-	// Verifikasi apakah old password sesuai dengan password yang ada di database
+	// Verifikasi password lama
 	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.OldPassword))
 	if err != nil {
 		return c.Status(http.StatusUnauthorized).JSON(responses.UserResponse{
@@ -407,13 +433,13 @@ func EditPassword(c *fiber.Ctx) error {
 		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{
 			Status:  http.StatusInternalServerError,
 			Message: "error",
-			Data:    &fiber.Map{"data": "Failed to hash password: " + err.Error()},
+			Data:    &fiber.Map{"data": "Failed to hash new password: " + err.Error()},
 		})
 	}
 
-	// Update password baru ke database
+	// Update password ke database
 	update := bson.M{"password": string(hashedPassword)}
-	_, err = userCollection.UpdateOne(context.Background(), bson.M{"_id": objId}, bson.M{"$set": update})
+	_, err = userCollection.UpdateOne(ctx, bson.M{"_id": objId}, bson.M{"$set": update})
 	if err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(responses.UserResponse{
 			Status:  http.StatusInternalServerError,
@@ -424,7 +450,7 @@ func EditPassword(c *fiber.Ctx) error {
 
 	return c.Status(http.StatusOK).JSON(responses.UserResponse{
 		Status:  http.StatusOK,
-		Message: "Password updated successfully",
+		Message: "success",
 		Data:    &fiber.Map{"data": "Password changed successfully"},
 	})
 }

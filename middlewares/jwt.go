@@ -44,6 +44,7 @@ func JWTMiddleware(c *fiber.Ctx) error {
 	claims := token.Claims.(jwt.MapClaims)
 	c.Locals("username", claims["username"])
 	c.Locals("role", claims["role"])
+	c.Locals("jenis_user", claims["jenis_user"])
 
 	//buatlah pengecekan jika role tidak ada maka akan mengeprint kosong
 	if claims["role"] == nil {

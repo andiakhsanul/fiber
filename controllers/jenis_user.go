@@ -4,7 +4,6 @@ import (
 	"demoapp/config"
 	"demoapp/model"
 	"net/http"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"go.mongodb.org/mongo-driver/bson"
@@ -12,57 +11,63 @@ import (
 )
 
 var UserModulCollection = config.GetCollection(config.DB, "usermodul")
-// Fungsi untuk memindahkan jenis_user
+var UserCollection = config.GetCollection(config.DB, "users")
+
+// Fungsi untuk mengganti jenis_user dan memperbarui data user
 func ChangeUserType(c *fiber.Ctx) error {
-    type RequestBody struct {
-        UserID    string   `json:"user_id" validate:"required"`
-        NewType   string   `json:"new_type" validate:"required"`
-        NewModuls []string `json:"new_moduls" validate:"required"` // Modul baru untuk jenis_user baru
-    }
+	// Struktur request body
+	type RequestBody struct {
+		UserID  string `json:"user_id" validate:"required"`
+		NewType string `json:"new_type" validate:"required"` // jenis_user yang baru
+	}
 
-    var body RequestBody
-    if err := c.BodyParser(&body); err != nil {
-        return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
-    }
+	var body RequestBody
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request"})
+	}
 
-    userID, err := primitive.ObjectIDFromHex(body.UserID)
-    if err != nil {
-        return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid user ID"})
-    }
+	// Validasi format ID
+	userID, err := primitive.ObjectIDFromHex(body.UserID)
+	if err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid user ID"})
+	}
 
-    // Kosongkan array `modul_id` untuk `user_id` tertentu
-    _, err = UserModulCollection.UpdateMany(
-        c.Context(),
-        bson.M{"user_id": userID},
-        bson.M{"$set": bson.M{"modul_id": []primitive.ObjectID{}}},
-    )
-    if err != nil {
-        return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to clear old modules"})
-    }
+	// Cari modul yang sudah ada dengan user_id yang sesuai
+	var userModul model.UserModul
+	err = UserModulCollection.FindOne(c.Context(), bson.M{"user_id": userID}).Decode(&userModul)
+	if err != nil {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "User not found in any module"})
+	}
 
-    // Tambahkan modul baru berdasarkan `NewModuls`
-    var newModulIDs []primitive.ObjectID
-    for _, modulID := range body.NewModuls {
-        id, err := primitive.ObjectIDFromHex(modulID)
-        if err != nil {
-            return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid modul ID"})
-        }
-        newModulIDs = append(newModulIDs, id)
-    }
+	// Hapus user_id dari jenis_user yang lama
+	_, err = UserModulCollection.UpdateMany(
+		c.Context(),
+		bson.M{"jenis_user": bson.M{"$ne": body.NewType}, "user_id": userID}, // Cari berdasarkan user_id dan jenis_user yang bukan new_type
+		bson.M{"$pull": bson.M{"user_id": userID}}, // Hapus user_id dari modul yang tidak sesuai
+	)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to remove user from old modules"})
+	}
 
-    userModul := model.UserModul{
-        ID:        primitive.NewObjectID(),
-        JenisUser: body.NewType,
-        UserID:    []primitive.ObjectID{userID},
-        ModulID:   newModulIDs,
-        CreatedAt: time.Now(),
-    }
+	// Tambahkan user_id ke jenis_user yang baru
+	_, err = UserModulCollection.UpdateOne(
+		c.Context(),
+		bson.M{"jenis_user": body.NewType}, // Cari modul dengan jenis_user yang baru
+		bson.M{"$addToSet": bson.M{"user_id": userID}}, // Menambahkan user_id tanpa duplikasi
+	)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to add user to the new type"})
+	}
 
-    // Simpan data baru ke koleksi `usermodul`
-    _, err = UserModulCollection.InsertOne(c.Context(), userModul)
-    if err != nil {
-        return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to assign new modules"})
-    }
+	// Perbarui `jenis_user` di koleksi `user`
+	_, err = UserCollection.UpdateOne(
+		c.Context(),
+		bson.M{"_id": userID}, // Cari user berdasarkan _id
+		bson.M{"$set": bson.M{"jenis_user": body.NewType}}, // Perbarui jenis_user
+	)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update user type in user collection"})
+	}
 
-    return c.Status(http.StatusOK).JSON(fiber.Map{"message": "User type updated successfully"})
+	return c.Status(http.StatusOK).JSON(fiber.Map{"message": "User type updated successfully"})
 }

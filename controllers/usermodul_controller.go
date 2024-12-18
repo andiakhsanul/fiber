@@ -16,6 +16,7 @@ import (
 
 // Inisialisasi koleksi dan validator
 var userModulCollection *mongo.Collection = config.GetCollection(config.DB, "usermodul")
+var ModulCollection *mongo.Collection = config.GetCollection(config.DB, "modul")
 var validateUserModul = validator.New()
 
 // Create UserModul
@@ -65,21 +66,50 @@ func GetAllUserModuls(c *fiber.Ctx) error {
 }
 
 // Get UserModul by ID
-func GetUserModulByID(c *fiber.Ctx) error {
-	id := c.Params("id")
+func GetUserModules(c *fiber.Ctx) error {
+	userIDParam := c.Params("user_id")
 
-	objectID, err := primitive.ObjectIDFromHex(id)
+	// Validasi ID
+	userID, err := primitive.ObjectIDFromHex(userIDParam)
 	if err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid ID format"})
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid user ID"})
 	}
 
-	var userModul model.UserModul
-	err = userModulCollection.FindOne(context.TODO(), bson.M{"_id": objectID}).Decode(&userModul)
+	// Cari semua data usermodul yang berisi user_id
+	var userModules []model.UserModul
+	cursor, err := UserModulCollection.Find(c.Context(), bson.M{"user_id": userID})
 	if err != nil {
-		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "UserModul not found"})
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to fetch user modules"})
 	}
 
-	return c.JSON(userModul)
+	// Decode hasil query
+	if err := cursor.All(c.Context(), &userModules); err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to decode user modules"})
+	}
+
+	// Jika tidak ada modul
+	if len(userModules) == 0 {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"message": "No modules found for this user"})
+	}
+
+	// Ambil nama modul dari ModulCollection
+	var moduleNames []string
+	for _, userModul := range userModules {
+		for _, modulID := range userModul.ModulID {
+			var modul model.Modul
+			err := ModulCollection.FindOne(c.Context(), bson.M{"_id": modulID}).Decode(&modul)
+			if err == nil {
+				moduleNames = append(moduleNames, modul.NmModul)
+			}
+		}
+	}
+
+	// Response sukses
+	return c.Status(http.StatusOK).JSON(fiber.Map{
+		"user_id":     userIDParam,
+		"modules":     moduleNames,
+		"total_count": len(moduleNames),
+	})
 }
 
 // Update UserModul
