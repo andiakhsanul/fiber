@@ -50,7 +50,11 @@ func AdminRoute(app *fiber.App) {
 	
 
 	//group usermodul untuk user tertentu yaitu cud
-	adminGroup.Post("/usermodul/manage", controllers.ManageUserModule)
+	// adminGroup.Post("/usermodul/manage", controllers.ManageUserModule)
+		// Routes untuk UserModul
+		adminGroup.Post("/usermodul/create", controllers.CreateUserModule)  // CREATE
+		adminGroup.Put("/usermodul/update", controllers.UpdateUserModule)   // UPDATE
+		adminGroup.Delete("/usermodul/delete", controllers.DeleteUserModule) // DELETE
 
 }
 
