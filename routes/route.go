@@ -4,11 +4,16 @@ import (
 	"demoapp/controllers"
 	"demoapp/middlewares"
 	"github.com/gofiber/fiber/v2"
+
 )
 
 func AdminRoute(app *fiber.App) {
 	// Route login tidak memerlukan autentikasi JWT
 	app.Post("/login", controllers.LoginHandler)
+
+
+	//BUATKAN ROUTE UNUTUK USER SAJA
+	app.Post("/register", controllers.RegisterHandler)
 
 	// Grup pengguna dengan autentikasi JWT
 	adminGroup := app.Group("/admin", middlewares.JWTMiddleware, middlewares.CheckRole("admin"))
